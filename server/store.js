@@ -122,6 +122,15 @@ async function updateVideo(id, patch) {
   return videos[index];
 }
 
+async function deleteVideo(id) {
+  const videos = await getVideos();
+  const index = videos.findIndex((video) => video.id === id);
+  if (index < 0) return null;
+  const [removed] = videos.splice(index, 1);
+  await saveVideos(videos);
+  return removed;
+}
+
 async function getProfiles() {
   return readJson('profiles.json', {});
 }
@@ -190,6 +199,7 @@ module.exports = {
   saveVideos,
   upsertVideo,
   updateVideo,
+  deleteVideo,
   getProfiles,
   saveProfiles,
   getProfile,

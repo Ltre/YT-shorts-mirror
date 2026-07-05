@@ -32,6 +32,8 @@ async function ensureCached(video, targetFilePath, context = {}) {
   try { await fs.access(cookiesPath); } catch (_) { throw new Error(`cookies 文件不存在: ${cookiesPath}`); }
 
   await fs.mkdir(path.dirname(targetFilePath), { recursive: true });
+  const meta = await getVideoMeta(sourceUrl, cookiesPath);
+  validateVideoMeta(meta);
   await context.updateProgress?.(0.05, '正在获取可用码率');
   const formatList = await runYtDlp(['-F', sourceUrl, '--cookies', cookiesPath], logger, true);
   const format = select720pFormat(formatList);
@@ -57,6 +59,7 @@ async function ensureCached(video, targetFilePath, context = {}) {
   try { stat = await fs.stat(targetFilePath); } catch (_) { throw new Error(`yt-dlp 已退出，但没有生成目标文件: ${targetFilePath}`); }
   if (!stat.isFile() || stat.size === 0) throw new Error('yt-dlp 生成了空文件');
   await assertPlayableVideo(targetFilePath);
+  await assertVerticalVideo(targetFilePath);
   await context.updateProgress?.(1, '下载完成');
   return {
     ok: true,
@@ -68,14 +71,14 @@ async function ensureCached(video, targetFilePath, context = {}) {
 
 function select720pFormat(output) {
   const formats = output.split(/\r?\n/).map(parseFormatLine).filter(Boolean);
-  const videos = formats.filter((item) => item.isVideo && item.height > 0 && item.height <= 720)
+  const videos = formats.filter((item) => item.isVideo && item.height > 0 && item.height <= 720 && item.width > 0 && item.height >= item.width)
     .sort((a, b) => b.height - a.height || b.bitrate - a.bitrate);
   if (!videos.length) {
     const storyboardOnly = formats.length > 0 && formats.every((item) => !item.isVideo);
     if (storyboardOnly) {
       throw new Error('yt-dlp 只拿到 YouTube storyboard/图片格式，没有拿到真实视频流；通常是 yt-dlp 版本过旧、cookies 失效或代理环境异常。请先升级 yt-dlp 后重试。');
     }
-    throw new Error('yt-dlp 没有找到不超过 720P 的视频格式');
+    throw new Error('yt-dlp 没有找到竖屏且不超过 720P 的视频格式');
   }
   if (!videos[0].videoOnly) return videos[0].id;
   const audios = formats.filter((item) => item.audioOnly).sort((a, b) => b.bitrate - a.bitrate);
@@ -92,7 +95,7 @@ function parseFormatLine(line) {
   const bitrates = [...details.matchAll(/(?:^|\s)(\d+(?:\.\d+)?)k(?:\s|$)/g)];
   const isStoryboard = /^sb\d+$/i.test(match[1]) || ext === 'mhtml' || /storyboard|images/i.test(details);
   const audioOnly = /audio only/i.test(details);
-  return { id: match[1], ext, height: resolution ? Number(resolution[2]) : 0,
+  return { id: match[1], ext, width: resolution ? Number(resolution[1]) : 0, height: resolution ? Number(resolution[2]) : 0,
     bitrate: bitrates.length ? Number(bitrates.at(-1)[1]) : 0,
     videoOnly: /video only/i.test(details),
     audioOnly,
@@ -143,6 +146,23 @@ function ytDlpCommand(args) {
   return { command, args: [...prefixArgs, ...runtimeArgs, ...args] };
 }
 
+async function getVideoMeta(sourceUrl, cookiesPath) {
+  const stdout = await runYtDlp(['--dump-single-json', '--skip-download', sourceUrl, '--cookies', cookiesPath], console, true);
+  return JSON.parse(stdout);
+}
+
+function validateVideoMeta(meta) {
+  const duration = Number(meta.duration || 0);
+  if (duration && duration > 120) throw new Error(`视频时长 ${duration}s 超过 120s 限制`);
+  const width = Number(meta.width || 0);
+  const height = Number(meta.height || 0);
+  if (width && height && height < width) throw new Error(`视频不是竖屏：${width}x${height}`);
+  const urlText = `${meta.webpage_url || ''} ${meta.original_url || ''}`;
+  if (!/\/shorts\//i.test(urlText) && duration > 60) {
+    throw new Error('视频不是明确的 YouTube Shorts，且时长超过 60s');
+  }
+}
+
 function safeUpdateProgress(updateProgress, progress, message, logger) {
   if (!updateProgress) return;
   Promise.resolve(updateProgress(progress, message)).catch((err) => {
@@ -153,6 +173,23 @@ function safeUpdateProgress(updateProgress, progress, message, logger) {
 async function assertPlayableVideo(filePath) {
   const ok = await isPlayableVideo(filePath);
   if (!ok) throw new Error('ffprobe 验证失败: 目标文件不是可播放视频');
+}
+
+async function assertVerticalVideo(filePath) {
+  const stdout = await runCommand(process.env.FFPROBE_BIN || 'ffprobe', [
+    '-v', 'error',
+    '-select_streams', 'v:0',
+    '-show_entries', 'stream=width,height,duration',
+    '-of', 'json',
+    filePath
+  ], 'ffprobe');
+  const data = JSON.parse(stdout);
+  const stream = data.streams?.[0] || {};
+  const width = Number(stream.width || 0);
+  const height = Number(stream.height || 0);
+  const duration = Number(stream.duration || 0);
+  if (duration && duration > 120.5) throw new Error(`下载结果时长 ${duration}s 超过 120s 限制`);
+  if (!width || !height || height < width) throw new Error(`下载结果不是竖屏：${width}x${height}`);
 }
 
 function isPlayableVideo(filePath) {

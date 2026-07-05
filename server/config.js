@@ -16,6 +16,7 @@ module.exports = {
   autoDiscoveryLimit: Number(process.env.AUTO_DISCOVERY_LIMIT || 5),
   autoDiscoveryCooldownMs: 30 * 60 * 1000,
   autoDiscoveryMaxDurationSeconds: Number(process.env.AUTO_DISCOVERY_MAX_DURATION || 60),
+  videoMaxDurationSeconds: Number(process.env.VIDEO_MAX_DURATION || 120),
   autoDiscoverySearchTerms: ['潮汕 美食 shorts', '老歌 经典 shorts', '养生 小知识 shorts', '广场舞 shorts', '家庭生活 shorts'],
   contentPoolMinUnseenReady: Number(process.env.CONTENT_POOL_MIN_UNSEEN_READY || 8),
   contentPoolExhaustedViewRatio: Number(process.env.CONTENT_POOL_EXHAUSTED_RATIO || 0.8),

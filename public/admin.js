@@ -104,6 +104,7 @@ async function loadCacheVideos() {
         <button class="secondary" data-action="preview" data-url="${escapeAttr(item.url || '')}" data-title="${escapeAttr(item.title || item.id)}" data-meta="${escapeAttr(`${item.id} · ${formatBytes(item.bytes)} · ${item.cacheState}`)}" ${item.url ? '' : 'disabled'}>预览</button>
         <button class="secondary" data-action="prefetch" data-id="${escapeAttr(item.id)}">缓存</button>
         <button class="danger" data-action="delete" data-id="${escapeAttr(item.id)}">删除缓存</button>
+        <button class="danger" data-action="delete-video" data-id="${escapeAttr(item.id)}" data-title="${escapeAttr(item.title || item.id)}">完全删除</button>
       </td>
     </tr>
   `).join('') || '<tr><td colspan="6">暂无视频</td></tr>';
@@ -169,6 +170,13 @@ cacheTable.addEventListener('click', async (event) => {
     if (!confirm(`确定删除 ${id} 的服务器缓存文件吗？`)) return;
     await api(`/api/admin/cache/videos/${encodeURIComponent(id)}`, { method: 'DELETE' });
     toast('缓存已删除');
+    await loadCacheVideos();
+  }
+  if (button.dataset.action === 'delete-video') {
+    const title = button.dataset.title || id;
+    if (!confirm(`确定完全删除这个视频吗？\n\n${title}\n\n会删除视频记录、缓存文件和相关缓存任务。`)) return;
+    await api(`/api/admin/videos/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    toast('视频已完全删除');
     await loadCacheVideos();
   }
 });

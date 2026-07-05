@@ -107,6 +107,12 @@ async function processJob(job) {
     await store.upsertJob({ ...job, status: 'failed', message: 'video not found' });
     return;
   }
+  if (Number(video.duration || 0) > config.videoMaxDurationSeconds) {
+    const message = `视频时长 ${video.duration}s 超过 ${config.videoMaxDurationSeconds}s 限制`;
+    await store.upsertJob({ ...job, status: 'failed', progress: 0, message });
+    await store.updateVideo(video.id, { cacheState: 'failed', cacheError: message });
+    return;
+  }
 
   const targetFilePath = path.join(config.cacheDir, `${safeFileName(video.id)}.mp4`);
   await store.upsertJob({

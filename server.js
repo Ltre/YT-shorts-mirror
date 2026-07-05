@@ -210,6 +210,14 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { ok: true, item: result });
   }
 
+  const videoDeleteMatch = url.pathname.match(/^\/api\/admin\/videos\/([^/]+)$/);
+  if (req.method === 'DELETE' && videoDeleteMatch) {
+    const videoId = decodeURIComponent(videoDeleteMatch[1]);
+    const result = await deleteVideoCompletely(videoId);
+    if (!result) return sendJson(res, 404, { error: 'not_found' });
+    return sendJson(res, 200, { ok: true, item: result });
+  }
+
   const cachePrefetchMatch = url.pathname.match(/^\/api\/admin\/cache\/videos\/([^/]+)\/prefetch$/);
   if (req.method === 'POST' && cachePrefetchMatch) {
     const videoId = decodeURIComponent(cachePrefetchMatch[1]);
@@ -307,6 +315,18 @@ async function deleteCachedVideo(videoId) {
     cacheError: ''
   };
   return store.updateVideo(video.id, patch);
+}
+
+async function deleteVideoCompletely(videoId) {
+  const removed = await store.deleteVideo(videoId);
+  if (!removed) return null;
+  const cacheFile = path.join(config.cacheDir, `${safeFileName(removed.id)}.mp4`);
+  try { await fsp.unlink(cacheFile); } catch (err) { if (err.code !== 'ENOENT') throw err; }
+
+  const jobs = await store.getJobs();
+  const keptJobs = jobs.filter((job) => job.videoId !== removed.id);
+  if (keptJobs.length !== jobs.length) await store.saveJobs(keptJobs);
+  return removed;
 }
 
 async function getAdminHistory(elderId) {
