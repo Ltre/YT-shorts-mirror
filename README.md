@@ -1,4 +1,4 @@
-# Elder Shorts PWA
+# YT-shorts-mirror
 
 一个给自家长辈刷短视频用的 PWA 源码骨架：
 
