@@ -1,5 +1,8 @@
 const fs = require('fs/promises');
 const path = require('path');
+const { spawn } = require('child_process');
+
+const ROOT = path.resolve(__dirname, '..');
 
 /**
  * 你接入下载/缓存命令的唯一位置。
@@ -22,22 +25,74 @@ async function ensureCached(video, targetFilePath, context = {}) {
     };
   }
 
-  // 这里留给你接入自己的命令行下载逻辑。
-  // 建议做法：
-  // 1. 用 child_process.spawn 执行你自己的命令；
-  // 2. 把输出文件写到 targetFilePath；
-  // 3. 命令退出码为 0 且文件存在时，返回 ok: true；
-  // 4. 失败时 throw Error 或返回 ok: false。
-  //
-  // 为了避免误用，本模板不内置任何第三方平台下载命令。
+  const sourceUrl = video.sourceUrl || video.url;
+  if (!sourceUrl || !/^https?:\/\//i.test(sourceUrl)) throw new Error(`video ${video.id} 没有有效的 sourceUrl`);
+  const configuredCookies = video.cookiesPath || video.cookieFile || process.env.YT_DLP_COOKIES;
+  const cookiesPath = path.resolve(ROOT, configuredCookies || 'cookies.txt');
+  try { await fs.access(cookiesPath); } catch (_) { throw new Error(`cookies 文件不存在: ${cookiesPath}`); }
 
-  logger.info?.(`[download-adapter] no adapter configured for video ${video.id}`);
   await fs.mkdir(path.dirname(targetFilePath), { recursive: true });
-
+  await context.updateProgress?.(0.05, '正在获取可用码率');
+  const formatList = await runYtDlp(['-F', sourceUrl, '--cookies', cookiesPath], logger, true);
+  const format = select720pFormat(formatList);
+  logger.info?.(`[download-adapter] selected format ${format} for video ${video.id}`);
+  await context.updateProgress?.(0.15, `开始下载（格式 ${format}）`);
+  await runYtDlp(['-f', format, sourceUrl, '--cookies', cookiesPath, '--no-part', '--newline',
+    '--merge-output-format', 'mp4', '-o', targetFilePath], logger, false, context.updateProgress);
+  let stat;
+  try { stat = await fs.stat(targetFilePath); } catch (_) { throw new Error(`yt-dlp 已退出，但没有生成目标文件: ${targetFilePath}`); }
+  if (!stat.isFile() || stat.size === 0) throw new Error('yt-dlp 生成了空文件');
+  await context.updateProgress?.(1, '下载完成');
   return {
-    ok: false,
-    note: 'download adapter is not configured. Edit server/download-adapter.js to connect your own command.'
+    ok: true,
+    cachedUrl: `/cached/${path.basename(targetFilePath)}`,
+    bytes: stat.size,
+    note: `downloaded by yt-dlp (${format})`
   };
+}
+
+function select720pFormat(output) {
+  const formats = output.split(/\r?\n/).map(parseFormatLine).filter(Boolean);
+  const videos = formats.filter((item) => item.height > 0 && item.height <= 720)
+    .sort((a, b) => b.height - a.height || b.bitrate - a.bitrate);
+  if (!videos.length) throw new Error('yt-dlp 没有找到不超过 720P 的视频格式');
+  if (!videos[0].videoOnly) return videos[0].id;
+  const audios = formats.filter((item) => item.audioOnly).sort((a, b) => b.bitrate - a.bitrate);
+  if (!audios.length) throw new Error(`格式 ${videos[0].id} 是纯视频，但没有找到可用音频格式`);
+  return `${videos[0].id}+${audios[0].id}`;
+}
+
+function parseFormatLine(line) {
+  const match = line.trim().match(/^(\S+)\s+(\S+)\s+(.+)$/);
+  if (!match || ['ID', '--'].includes(match[1])) return null;
+  const details = match[3];
+  const resolution = details.match(/(?:^|\s)(\d{2,5})x(\d{2,5})(?:\s|$)/);
+  const bitrates = [...details.matchAll(/(?:^|\s)(\d+(?:\.\d+)?)k(?:\s|$)/g)];
+  return { id: match[1], height: resolution ? Number(resolution[2]) : 0,
+    bitrate: bitrates.length ? Number(bitrates.at(-1)[1]) : 0,
+    videoOnly: /video only/i.test(details), audioOnly: /audio only/i.test(details) };
+}
+
+function runYtDlp(args, logger, captureStdout, updateProgress) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.env.YT_DLP_BIN || 'yt-dlp', args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      if (captureStdout) stdout += chunk;
+      else {
+        logger.info?.(`[yt-dlp] ${chunk.trimEnd()}`);
+        const match = chunk.match(/\[download\]\s+(\d+(?:\.\d+)?)%/);
+        if (match) updateProgress?.(0.15 + Number(match[1]) * 0.008, '正在下载');
+      }
+    });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.on('error', (err) => reject(new Error(err.code === 'ENOENT' ? '找不到 yt-dlp，请先安装并加入 PATH' : err.message)));
+    child.on('close', (code) => code === 0 ? resolve(stdout)
+      : reject(new Error(`yt-dlp 执行失败（退出码 ${code}）: ${stderr.trim() || stdout.trim()}`)));
+  });
 }
 
 module.exports = { ensureCached };
