@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs/promises');
+const { spawn } = require('child_process');
 const config = require('./config');
 const store = require('./store');
 const { recommend } = require('./recommender');
@@ -13,6 +14,7 @@ async function enqueueVideo(videoId, reason = 'recommendation') {
   const videos = await store.getVideos();
   const video = videos.find((item) => item.id === videoId);
   if (!video) return null;
+  if (video.audienceState === 'exhausted') return null;
   if (video.url && video.cacheState === 'ready') return null;
 
   const jobs = await store.getJobs();
@@ -40,6 +42,7 @@ async function enqueueRecommendations(elderId, limit = config.serverPrefetchLimi
   const queued = [];
   for (const video of recs) {
     if (queued.length >= limit) break;
+    if (video.audienceState === 'exhausted') continue;
     if (video.url && video.cacheState === 'ready') continue;
     const job = await enqueueVideo(video.id, `prefetch for ${elderId}`);
     if (job) queued.push(job);
@@ -50,6 +53,7 @@ async function enqueueRecommendations(elderId, limit = config.serverPrefetchLimi
 function startQueue() {
   if (running) return;
   running = true;
+  repairInvalidCachedVideos().catch((err) => console.warn('[prefetch-queue] cache repair failed', err.message));
   scheduleDrain();
 }
 
@@ -154,6 +158,42 @@ async function processJob(job) {
 
 function safeFileName(input) {
   return String(input).replace(/[^a-zA-Z0-9._-]/g, '_');
+}
+
+async function repairInvalidCachedVideos() {
+  const videos = await store.getVideos();
+  for (const video of videos) {
+    if (!video.sourceUrl || video.cacheState !== 'ready' || !video.url?.startsWith('/cached/')) continue;
+    const filePath = path.join(config.cacheDir, `${safeFileName(video.id)}.mp4`);
+    const valid = await isPlayableVideo(filePath);
+    if (valid) continue;
+    await fs.rm(filePath, { force: true }).catch(() => {});
+    await store.updateVideo(video.id, {
+      url: null,
+      cacheState: 'new',
+      cachedAt: null,
+      bytes: 0,
+      cacheError: 'cached file is not a playable video; requeued'
+    });
+    await enqueueVideo(video.id, 'repair invalid cached file');
+  }
+}
+
+function isPlayableVideo(filePath) {
+  return new Promise((resolve) => {
+    const child = spawn(process.env.FFPROBE_BIN || 'ffprobe', [
+      '-v', 'error',
+      '-select_streams', 'v:0',
+      '-show_entries', 'stream=codec_type',
+      '-of', 'default=noprint_wrappers=1:nokey=1',
+      filePath
+    ], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    let stdout = '';
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.on('error', () => resolve(false));
+    child.on('close', (code) => resolve(code === 0 && stdout.includes('video')));
+  });
 }
 
 module.exports = {

@@ -36,19 +36,36 @@
             <h2>服务器缓存视频</h2>
             <p class="muted">可查看缓存状态、手动触发缓存或删除缓存文件。</p>
           </div>
-          <button id="refreshCacheBtn">刷新</button>
+          <div class="header-actions">
+            <button id="discoverBtn" class="secondary">自动发现并缓存</button>
+            <button id="refreshCacheBtn">刷新</button>
+          </div>
         </div>
         <form id="addVideoForm" class="add-video-form">
           <input id="newVideoUrl" type="url" placeholder="粘贴 YouTube 视频链接，例如 https://www.youtube.com/watch?v=..." required />
           <input id="newVideoTitle" placeholder="标题，可选" />
           <button type="submit">添加并缓存</button>
         </form>
+        <div class="pager">
+          <button id="prevPageBtn" class="secondary" type="button">上一页</button>
+          <span id="pageInfo" class="muted">第 1 / 1 页</span>
+          <button id="nextPageBtn" class="secondary" type="button">下一页</button>
+          <label class="page-size">
+            每页
+            <select id="pageSizeSelect">
+              <option value="10">10</option>
+              <option value="20">20</option>
+              <option value="50">50</option>
+            </select>
+          </label>
+        </div>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
                 <th>视频</th>
                 <th>状态</th>
+                <th>观看覆盖</th>
                 <th>文件</th>
                 <th>最近任务</th>
                 <th>操作</th>
@@ -75,6 +92,14 @@
       </article>
     </section>
   </main>
+  <aside id="previewModal" class="preview-modal hidden" aria-live="polite">
+    <div class="preview-card">
+      <button id="closePreviewBtn" class="preview-close" type="button">×</button>
+      <h2 id="previewTitle">视频预览</h2>
+      <video id="previewVideo" controls playsinline></video>
+      <p id="previewMeta" class="muted"></p>
+    </div>
+  </aside>
   <div id="toast" class="toast hidden"></div>
   <script src="/admin.js" defer></script>
 </body>

@@ -3,6 +3,9 @@
 storage/cache/*
 !storage/cache/.gitkeep
 
+# Local runtime data: cookies, profiles, cache jobs, discovered videos, yt-dlp cache, temp writes.
+data/*
+
 
 # Logs
 logs

@@ -7,6 +7,8 @@ const config = require('./server/config');
 const store = require('./server/store');
 const { learnFromEvent, recommend } = require('./server/recommender');
 const queue = require('./server/prefetch-queue');
+const youtubeDiscovery = require('./server/youtube-discovery');
+const contentPool = require('./server/content-pool');
 
 const YT_COOKIES_FILE = path.join(config.dataDir, 'yt-cookies.txt');
 
@@ -28,7 +30,9 @@ const MIME = {
 async function main() {
   await fsp.mkdir(config.publicDir, { recursive: true });
   await fsp.mkdir(config.cacheDir, { recursive: true });
+  contentPool.auditContentPool().catch((err) => console.warn('[content-pool] startup audit failed:', err.message));
   queue.startQueue();
+  youtubeDiscovery.startAutoDiscovery(queue);
 
   const server = http.createServer((req, res) => {
     handle(req, res).catch((err) => {
@@ -78,8 +82,12 @@ async function handleApi(req, res, url) {
     const limit = Number(url.searchParams.get('limit') || 8);
     const videos = await store.getVideos();
     const profile = await store.getProfile(elderId);
-    const items = recommend(videos, profile, { limit }).map(publicVideo);
+    const readyVideos = videos.filter((video) => video.url);
+    const activeReadyVideos = readyVideos.filter((video) => video.audienceState !== 'exhausted');
+    const pool = activeReadyVideos.length >= Math.min(3, limit) ? activeReadyVideos : readyVideos.length ? readyVideos : videos;
+    const items = recommend(pool, profile, { limit }).map(publicVideo);
     queue.enqueueRecommendations(elderId, Math.min(config.serverPrefetchLimit, limit)).catch(console.error);
+    youtubeDiscovery.discoverAndQueue(elderId, queue).catch((err) => console.warn('[youtube-discovery] feed trigger failed:', err.message));
     return sendJson(res, 200, { elderId, items, profileSummary: summarizeProfile(profile) });
   }
 
@@ -110,6 +118,7 @@ async function handleApi(req, res, url) {
       extra: body.extra || {}
     });
     await store.saveProfile(profile);
+    contentPool.auditContentPool().catch((err) => console.warn('[content-pool] event audit failed:', err.message));
 
     if (['play', 'watch', 'like', 'favorite', 'search'].includes(body.type)) {
       queue.enqueueRecommendations(elderId, config.serverPrefetchLimit).catch(console.error);
@@ -145,11 +154,15 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/admin/cache/videos') {
-    return sendJson(res, 200, await getAdminCacheVideos());
+    await contentPool.auditContentPool();
+    return sendJson(res, 200, await getAdminCacheVideos({
+      page: url.searchParams.get('page'),
+      pageSize: url.searchParams.get('pageSize')
+    }));
   }
 
   if (req.method === 'GET' && url.pathname === '/api/admin/stream') {
-    return streamAdminEvents(req, res);
+    return streamAdminEvents(req, res, url);
   }
 
   if (req.method === 'POST' && url.pathname === '/api/admin/cache/videos') {
@@ -171,6 +184,22 @@ async function handleApi(req, res, url) {
     });
     const job = await queue.enqueueVideo(video.id, 'admin add video');
     return sendJson(res, 201, { ok: true, item: publicVideo(video), job });
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/admin/discover') {
+    const body = await readJsonBody(req);
+    const elderId = body.elderId || config.defaultElderId;
+    const result = await youtubeDiscovery.discoverAndQueue(elderId, queue, {
+      force: true,
+      limit: Number(body.limit || config.autoDiscoveryLimit),
+      reason: 'admin manual discovery'
+    });
+    return sendJson(res, 200, { ok: true, result });
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/admin/content-pool/audit') {
+    const summary = await contentPool.auditContentPool();
+    return sendJson(res, 200, { ok: true, summary });
   }
 
   const cacheDeleteMatch = url.pathname.match(/^\/api\/admin\/cache\/videos\/([^/]+)$/);
@@ -218,7 +247,7 @@ async function getCookiesMeta() {
   }
 }
 
-async function getAdminCacheVideos() {
+async function getAdminCacheVideos(options = {}) {
   const [videos, jobs] = await Promise.all([store.getVideos(), store.getJobs()]);
   const items = [];
   for (const video of videos) {
@@ -234,13 +263,34 @@ async function getAdminCacheVideos() {
       cacheState: video.cacheState || (video.url ? 'ready' : 'new'),
       cachedAt: video.cachedAt || null,
       cacheError: video.cacheError || '',
+      audienceState: video.audienceState || 'active',
+      viewedByCount: video.viewedByCount || 0,
+      viewedRatio: Number(video.viewedRatio || 0),
       bytes: stat?.size || video.bytes || 0,
       fileExists: Boolean(stat),
       fileName: `${safeFileName(video.id)}.mp4`,
+      updatedAt: video.updatedAt || video.cachedAt || video.createdAt || null,
       latestJob
     });
   }
-  return { items };
+  items.sort((a, b) => {
+    const aTime = Date.parse(a.latestJob?.updatedAt || a.updatedAt || a.cachedAt || 0) || 0;
+    const bTime = Date.parse(b.latestJob?.updatedAt || b.updatedAt || b.cachedAt || 0) || 0;
+    return bTime - aTime || String(b.id).localeCompare(String(a.id));
+  });
+
+  const pageSize = clampInt(options.pageSize, 1, 100, 10);
+  const total = items.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = clampInt(options.page, 1, totalPages, 1);
+  const start = (page - 1) * pageSize;
+  return {
+    items: items.slice(start, start + pageSize),
+    page,
+    pageSize,
+    total,
+    totalPages
+  };
 }
 
 async function deleteCachedVideo(videoId) {
@@ -282,7 +332,7 @@ async function getAdminHistory(elderId) {
   };
 }
 
-async function streamAdminEvents(req, res) {
+async function streamAdminEvents(req, res, url) {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-store',
@@ -297,7 +347,10 @@ async function streamAdminEvents(req, res) {
   const sendSnapshot = async () => {
     if (closed) return;
     try {
-      const payload = await getAdminCacheVideos();
+      const payload = await getAdminCacheVideos({
+        page: url.searchParams.get('page'),
+        pageSize: url.searchParams.get('pageSize')
+      });
       res.write(`event: cache\n`);
       res.write(`data: ${JSON.stringify({ ...payload, at: new Date().toISOString() })}\n\n`);
     } catch (err) {
@@ -421,6 +474,12 @@ function safeRelative(urlPath) {
 
 function safeFileName(input) {
   return String(input).replace(/[^a-zA-Z0-9._-]/g, '_');
+}
+
+function clampInt(input, min, max, fallback) {
+  const value = Number.parseInt(input, 10);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(min, Math.min(max, value));
 }
 
 function makeVideoIdFromUrl(sourceUrl) {

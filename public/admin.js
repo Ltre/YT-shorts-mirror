@@ -3,16 +3,42 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const cookiesMeta = $('#cookiesMeta');
 const cookiesInput = $('#cookiesInput');
 const cacheTable = $('#cacheTable');
+const pageInfo = $('#pageInfo');
+const prevPageBtn = $('#prevPageBtn');
+const nextPageBtn = $('#nextPageBtn');
+const pageSizeSelect = $('#pageSizeSelect');
+const previewModal = $('#previewModal');
+const previewVideo = $('#previewVideo');
+const previewTitle = $('#previewTitle');
+const previewMeta = $('#previewMeta');
 const historySummary = $('#historySummary');
 const historyList = $('#historyList');
 const elderIdInput = $('#elderIdInput');
 const toastEl = $('#toast');
 let adminStream = null;
+const cachePager = {
+  page: 1,
+  pageSize: Number(localStorage.getItem('adminCachePageSize') || 10),
+  total: 0,
+  totalPages: 1
+};
 
 $('#saveCookiesBtn').addEventListener('click', saveCookies);
 $('#refreshCacheBtn').addEventListener('click', loadCacheVideos);
+$('#discoverBtn').addEventListener('click', discoverVideos);
 $('#loadHistoryBtn').addEventListener('click', loadHistory);
 $('#addVideoForm').addEventListener('submit', addVideo);
+prevPageBtn.addEventListener('click', () => changeCachePage(cachePager.page - 1));
+nextPageBtn.addEventListener('click', () => changeCachePage(cachePager.page + 1));
+pageSizeSelect.addEventListener('change', () => {
+  cachePager.pageSize = Number(pageSizeSelect.value || 10);
+  localStorage.setItem('adminCachePageSize', String(cachePager.pageSize));
+  changeCachePage(1);
+});
+$('#closePreviewBtn').addEventListener('click', closePreview);
+previewModal.addEventListener('click', (event) => {
+  if (event.target === previewModal) closePreview();
+});
 
 init().catch((err) => {
   console.error(err);
@@ -20,6 +46,7 @@ init().catch((err) => {
 });
 
 async function init() {
+  pageSizeSelect.value = String(cachePager.pageSize);
   await Promise.all([loadCookiesMeta(), loadCacheVideos(), loadHistory()]);
   startAdminStream();
 }
@@ -46,7 +73,12 @@ async function saveCookies() {
 }
 
 async function loadCacheVideos() {
-  const data = await api('/api/admin/cache/videos');
+  const data = await api(`/api/admin/cache/videos?page=${cachePager.page}&pageSize=${cachePager.pageSize}`);
+  cachePager.page = data.page || 1;
+  cachePager.pageSize = data.pageSize || cachePager.pageSize;
+  cachePager.total = data.total || 0;
+  cachePager.totalPages = data.totalPages || 1;
+  renderPager();
   cacheTable.innerHTML = (data.items || []).map((item) => `
     <tr>
       <td>
@@ -56,7 +88,12 @@ async function loadCacheVideos() {
       </td>
       <td>
         <span class="badge ${escapeHtml(item.cacheState)}">${escapeHtml(item.cacheState)}</span>
+        <span class="badge ${escapeHtml(item.audienceState || 'active')}">${escapeHtml(item.audienceState || 'active')}</span>
         ${item.cacheError ? `<div class="small">${escapeHtml(item.cacheError)}</div>` : ''}
+      </td>
+      <td>
+        <div>${Math.round(Number(item.viewedRatio || 0) * 100)}%</div>
+        <div class="small">${Number(item.viewedByCount || 0)} 人看过</div>
       </td>
       <td>
         <div>${item.fileExists ? '存在' : '无文件'} · ${formatBytes(item.bytes)}</div>
@@ -64,11 +101,24 @@ async function loadCacheVideos() {
       </td>
       <td>${renderJob(item.latestJob)}</td>
       <td class="actions-cell">
+        <button class="secondary" data-action="preview" data-url="${escapeAttr(item.url || '')}" data-title="${escapeAttr(item.title || item.id)}" data-meta="${escapeAttr(`${item.id} · ${formatBytes(item.bytes)} · ${item.cacheState}`)}" ${item.url ? '' : 'disabled'}>预览</button>
         <button class="secondary" data-action="prefetch" data-id="${escapeAttr(item.id)}">缓存</button>
         <button class="danger" data-action="delete" data-id="${escapeAttr(item.id)}">删除缓存</button>
       </td>
     </tr>
-  `).join('') || '<tr><td colspan="5">暂无视频</td></tr>';
+  `).join('') || '<tr><td colspan="6">暂无视频</td></tr>';
+}
+
+function renderPager() {
+  pageInfo.textContent = `第 ${cachePager.page} / ${cachePager.totalPages} 页，共 ${cachePager.total} 条，按最新更新倒序`;
+  prevPageBtn.disabled = cachePager.page <= 1;
+  nextPageBtn.disabled = cachePager.page >= cachePager.totalPages;
+}
+
+async function changeCachePage(page) {
+  cachePager.page = Math.max(1, Math.min(cachePager.totalPages || 1, page));
+  await loadCacheVideos();
+  startAdminStream();
 }
 
 async function addVideo(event) {
@@ -87,10 +137,29 @@ async function addVideo(event) {
   await loadCacheVideos();
 }
 
+async function discoverVideos() {
+  $('#discoverBtn').disabled = true;
+  try {
+    const data = await api('/api/admin/discover', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ elderId: elderIdInput.value.trim() || 'default', limit: 5 })
+    });
+    toast(`自动发现完成：新增 ${data.result?.added || 0}，入队 ${data.result?.queued || 0}`);
+    await loadCacheVideos();
+  } finally {
+    $('#discoverBtn').disabled = false;
+  }
+}
+
 cacheTable.addEventListener('click', async (event) => {
   const button = event.target.closest('button[data-action]');
   if (!button) return;
   const id = button.dataset.id;
+  if (button.dataset.action === 'preview') {
+    openPreview(button.dataset.url, button.dataset.title, button.dataset.meta);
+    return;
+  }
   if (button.dataset.action === 'prefetch') {
     await api(`/api/admin/cache/videos/${encodeURIComponent(id)}/prefetch`, { method: 'POST' });
     toast('已加入缓存队列');
@@ -103,6 +172,22 @@ cacheTable.addEventListener('click', async (event) => {
     await loadCacheVideos();
   }
 });
+
+function openPreview(url, title, meta) {
+  if (!url) return toast('这个视频还没有可预览的缓存文件');
+  previewTitle.textContent = title || '视频预览';
+  previewMeta.textContent = meta || url;
+  previewVideo.src = url;
+  previewModal.classList.remove('hidden');
+  previewVideo.play().catch(() => {});
+}
+
+function closePreview() {
+  previewVideo.pause();
+  previewVideo.removeAttribute('src');
+  previewVideo.load();
+  previewModal.classList.add('hidden');
+}
 
 async function loadHistory() {
   const elderId = elderIdInput.value.trim() || 'default';
@@ -173,7 +258,7 @@ function startAdminStream() {
   if (adminStream) adminStream.close();
 
   let refreshing = false;
-  adminStream = new EventSource('/api/admin/stream');
+  adminStream = new EventSource(`/api/admin/stream?page=${cachePager.page}&pageSize=${cachePager.pageSize}`);
   adminStream.addEventListener('cache', async () => {
     if (refreshing) return;
     refreshing = true;
