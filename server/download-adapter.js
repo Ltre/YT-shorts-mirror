@@ -28,7 +28,7 @@ async function ensureCached(video, targetFilePath, context = {}) {
   const sourceUrl = video.sourceUrl || video.url;
   if (!sourceUrl || !/^https?:\/\//i.test(sourceUrl)) throw new Error(`video ${video.id} 没有有效的 sourceUrl`);
   const configuredCookies = video.cookiesPath || video.cookieFile || process.env.YT_DLP_COOKIES;
-  const cookiesPath = path.resolve(ROOT, configuredCookies || 'cookies.txt');
+  const cookiesPath = configuredCookies ? path.resolve(ROOT, configuredCookies) : path.join(ROOT, 'data', 'yt-cookies.txt');
   try { await fs.access(cookiesPath); } catch (_) { throw new Error(`cookies 文件不存在: ${cookiesPath}`); }
 
   await fs.mkdir(path.dirname(targetFilePath), { recursive: true });
@@ -37,6 +37,7 @@ async function ensureCached(video, targetFilePath, context = {}) {
   const format = select720pFormat(formatList);
   logger.info?.(`[download-adapter] selected format ${format} for video ${video.id}`);
   await context.updateProgress?.(0.15, `开始下载（格式 ${format}）`);
+  await fs.rm(targetFilePath, { force: true }).catch(() => {});
   await runYtDlp(['-f', format, sourceUrl, '--cookies', cookiesPath, '--no-part', '--newline',
     '--merge-output-format', 'mp4', '-o', targetFilePath], logger, false, context.updateProgress);
   let stat;
@@ -75,9 +76,14 @@ function parseFormatLine(line) {
 
 function runYtDlp(args, logger, captureStdout, updateProgress) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.env.YT_DLP_BIN || 'yt-dlp', args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.env.YT_DLP_BIN || 'yt-dlp', args, {
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: buildYtDlpEnv()
+    });
     let stdout = '';
     let stderr = '';
+    let lastProgressAt = 0;
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', (chunk) => {
@@ -85,7 +91,14 @@ function runYtDlp(args, logger, captureStdout, updateProgress) {
       else {
         logger.info?.(`[yt-dlp] ${chunk.trimEnd()}`);
         const match = chunk.match(/\[download\]\s+(\d+(?:\.\d+)?)%/);
-        if (match) updateProgress?.(0.15 + Number(match[1]) * 0.008, '正在下载');
+        if (match) {
+          const now = Date.now();
+          const percent = Number(match[1]);
+          if (now - lastProgressAt >= 1000 || percent >= 100) {
+            lastProgressAt = now;
+            safeUpdateProgress(updateProgress, 0.15 + percent * 0.008, '正在下载', logger);
+          }
+        }
       }
     });
     child.stderr.on('data', (chunk) => { stderr += chunk; });
@@ -93,6 +106,32 @@ function runYtDlp(args, logger, captureStdout, updateProgress) {
     child.on('close', (code) => code === 0 ? resolve(stdout)
       : reject(new Error(`yt-dlp 执行失败（退出码 ${code}）: ${stderr.trim() || stdout.trim()}`)));
   });
+}
+
+function safeUpdateProgress(updateProgress, progress, message, logger) {
+  if (!updateProgress) return;
+  Promise.resolve(updateProgress(progress, message)).catch((err) => {
+    logger.warn?.(`[download-adapter] progress update failed: ${err.message}`);
+  });
+}
+
+function buildYtDlpEnv() {
+  const env = { ...process.env };
+  const proxy = env.YT_DLP_PROXY || env.HTTPS_PROXY || env.HTTP_PROXY || env.ALL_PROXY || '';
+  const allProxy = env.YT_DLP_ALL_PROXY || env.ALL_PROXY || proxy;
+
+  if (proxy) {
+    env.HTTP_PROXY = env.HTTP_PROXY || proxy;
+    env.HTTPS_PROXY = env.HTTPS_PROXY || proxy;
+    env.http_proxy = env.http_proxy || env.HTTP_PROXY;
+    env.https_proxy = env.https_proxy || env.HTTPS_PROXY;
+  }
+
+  if (allProxy) {
+    env.ALL_PROXY = env.ALL_PROXY || allProxy;
+    env.all_proxy = env.all_proxy || env.ALL_PROXY;
+  }
+  return env;
 }
 
 module.exports = { ensureCached };

@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>管理后台 - 长辈短视频</title>
+  <link rel="stylesheet" href="/admin.css" />
+</head>
+<body>
+  <main class="admin-shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">YT Shorts Mirror</p>
+        <h1>管理后台</h1>
+        <p class="muted">录入 YouTube cookies、查看服务器缓存、追踪长辈浏览记录。</p>
+      </div>
+      <a class="home-link" href="/">返回播放页</a>
+    </header>
+
+    <section class="grid">
+      <article class="card cookies-card">
+        <div class="card-head">
+          <div>
+            <h2>YT Cookies</h2>
+            <p id="cookiesMeta" class="muted">读取中...</p>
+          </div>
+          <button id="saveCookiesBtn">保存 cookies</button>
+        </div>
+        <textarea id="cookiesInput" spellcheck="false" placeholder="粘贴 Netscape cookies.txt 内容；会保存到 data/yt-cookies.txt"></textarea>
+        <p class="hint">提示：download-adapter.js 默认会读取这个文件；如果视频配置了 cookiesPath 或环境变量 YT_DLP_COOKIES，则会优先使用指定值。</p>
+      </article>
+
+      <article class="card">
+        <div class="card-head">
+          <div>
+            <h2>服务器缓存视频</h2>
+            <p class="muted">可查看缓存状态、手动触发缓存或删除缓存文件。</p>
+          </div>
+          <button id="refreshCacheBtn">刷新</button>
+        </div>
+        <form id="addVideoForm" class="add-video-form">
+          <input id="newVideoUrl" type="url" placeholder="粘贴 YouTube 视频链接，例如 https://www.youtube.com/watch?v=..." required />
+          <input id="newVideoTitle" placeholder="标题，可选" />
+          <button type="submit">添加并缓存</button>
+        </form>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>视频</th>
+                <th>状态</th>
+                <th>文件</th>
+                <th>最近任务</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="cacheTable"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="card-head">
+          <div>
+            <h2>长辈浏览记录</h2>
+            <p class="muted">按 elderId 查看最近事件与观看列表。</p>
+          </div>
+          <div class="inline-form">
+            <input id="elderIdInput" value="default" />
+            <button id="loadHistoryBtn">查询</button>
+          </div>
+        </div>
+        <div id="historySummary" class="summary"></div>
+        <div id="historyList" class="history-list"></div>
+      </article>
+    </section>
+  </main>
+  <div id="toast" class="toast hidden"></div>
+  <script src="/admin.js" defer></script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-const APP_CACHE = 'elder-app-shell-v1';
+const APP_CACHE = 'elder-app-shell-v2';
 const RECENT_VIDEO_CACHE = 'elder-recent-videos-v1';
 const APP_SHELL = [
   '/',
@@ -30,6 +30,11 @@ self.addEventListener('fetch', (event) => {
 
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(fetch(req));
+    return;
+  }
+
+  if (url.pathname === '/admin' || url.pathname === '/admin.html' || url.pathname === '/admin.js' || url.pathname === '/admin.css') {
+    event.respondWith(fetch(req, { cache: 'no-store' }));
     return;
   }
 

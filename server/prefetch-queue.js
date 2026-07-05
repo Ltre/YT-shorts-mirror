@@ -76,6 +76,17 @@ function scheduleDrain(delay = 20) {
 async function drain() {
   if (active >= config.prefetchConcurrency) return;
   const jobs = await store.getJobs();
+  let changed = false;
+  for (const job of jobs) {
+    if (job.status === 'running') {
+      job.status = 'queued';
+      job.message = 'requeued after server restart';
+      job.progress = 0;
+      job.updatedAt = new Date().toISOString();
+      changed = true;
+    }
+  }
+  if (changed) await store.saveJobs(jobs);
   const next = jobs.find((job) => job.status === 'queued');
   if (!next) return;
   active += 1;

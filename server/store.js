@@ -2,6 +2,8 @@ const fs = require('fs/promises');
 const path = require('path');
 const config = require('./config');
 
+const writeLocks = new Map();
+
 async function ensureDir(dir) {
   await fs.mkdir(dir, { recursive: true });
 }
@@ -20,16 +22,55 @@ async function readJson(name, fallback) {
       await writeJson(name, fallback);
       return structuredCloneSafe(fallback);
     }
+    if (err instanceof SyntaxError) {
+      err.message = `Invalid JSON in data/${name}: ${err.message}`;
+    }
     throw err;
   }
 }
 
 async function writeJson(name, value) {
+  const previous = writeLocks.get(name) || Promise.resolve();
+  const next = previous.then(() => writeJsonNow(name, value), () => writeJsonNow(name, value));
+  writeLocks.set(name, next.catch(() => {}));
+  try {
+    return await next;
+  } finally {
+    if (writeLocks.get(name) === next) writeLocks.delete(name);
+  }
+}
+
+async function writeJsonNow(name, value) {
   await ensureDir(config.dataDir);
   const file = dataPath(name);
-  const tmp = `${file}.tmp`;
+  const tmp = `${file}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
   await fs.writeFile(tmp, JSON.stringify(value, null, 2), 'utf8');
-  await fs.rename(tmp, file);
+  await replaceFile(tmp, file);
+}
+
+async function replaceFile(tmp, file) {
+  const maxAttempts = 8;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await fs.rename(tmp, file);
+      return;
+    } catch (err) {
+      if (!['EPERM', 'EACCES', 'EBUSY'].includes(err.code) || attempt === maxAttempts) {
+        if (['EPERM', 'EACCES', 'EBUSY'].includes(err.code)) {
+          await fs.copyFile(tmp, file);
+          await fs.unlink(tmp).catch(() => {});
+          return;
+        }
+        await fs.unlink(tmp).catch(() => {});
+        throw err;
+      }
+      await sleep(30 * attempt);
+    }
+  }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function structuredCloneSafe(value) {

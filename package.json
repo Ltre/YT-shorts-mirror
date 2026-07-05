@@ -6,7 +6,8 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node -e \"process.env.YT_DLP_PROXY=process.env.YT_DLP_PROXY||'http://127.0.0.1:58591';process.env.YT_DLP_ALL_PROXY=process.env.YT_DLP_ALL_PROXY||'socks5://127.0.0.1:51837';require('./server.js')\"",
+    "dev:no-proxy": "node server.js"
   },
   "engines": {
     "node": ">=18"
