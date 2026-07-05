@@ -1,0 +1,16 @@
+{
+  "name": "elder-shorts-pwa",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PWA short-video feed for elders with server-assisted cache queue and client recent-video cache.",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": ["pwa", "short-video", "cache", "elderly", "nodejs"],
+  "license": "UNLICENSED"
+}

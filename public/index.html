@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#101010" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>长辈短视频</title>
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="icon" href="/icons/icon-192.png" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main id="app" class="app-shell">
+    <section class="top-bar" aria-label="顶部工具栏">
+      <button id="installBtn" class="pill hidden">安装到桌面</button>
+      <div class="brand">长辈刷刷</div>
+      <button id="statusBtn" class="pill">缓存</button>
+    </section>
+
+    <section id="feed" class="feed" aria-label="短视频列表"></section>
+
+    <section class="bottom-search" aria-label="搜索偏好">
+      <input id="searchInput" type="search" placeholder="想看什么？潮汕、美食、老歌..." autocomplete="off" />
+      <button id="searchBtn">找</button>
+    </section>
+
+    <aside id="drawer" class="drawer hidden" aria-live="polite">
+      <div class="drawer-card">
+        <button id="closeDrawer" class="close">×</button>
+        <h2>缓存与偏好</h2>
+        <div id="cacheInfo" class="cache-info">加载中...</div>
+        <div id="profileInfo" class="profile-info"></div>
+      </div>
+    </aside>
+  </main>
+
+  <template id="videoTemplate">
+    <article class="video-card">
+      <video playsinline webkit-playsinline preload="metadata" loop></video>
+      <div class="shade"></div>
+      <div class="video-meta">
+        <div class="author"></div>
+        <h1 class="title"></h1>
+        <p class="desc"></p>
+        <div class="tags"></div>
+      </div>
+      <nav class="actions" aria-label="视频操作">
+        <button class="action like" aria-label="喜欢">赞<br><span>👍</span></button>
+        <button class="action dislike" aria-label="不喜欢">划少<br><span>👋</span></button>
+        <button class="action favorite" aria-label="收藏">收藏<br><span>⭐</span></button>
+        <button class="action replay" aria-label="重播">重播<br><span>↻</span></button>
+      </nav>
+      <button class="big-play" aria-label="播放或暂停">▶</button>
+      <div class="cache-badge"></div>
+    </article>
+  </template>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>

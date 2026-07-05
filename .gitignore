@@ -1,3 +1,9 @@
+# Main
+.DS_Store
+storage/cache/*
+!storage/cache/.gitkeep
+
+
 # Logs
 logs
 *.log

@@ -1,0 +1,81 @@
+[
+  {
+    "id": "demo-001",
+    "title": "早茶点心，趁热食",
+    "description": "Demo 视频：把这里换成你自己的短视频源。",
+    "url": "/media/demo-001.mp4",
+    "sourceUrl": null,
+    "thumb": "",
+    "tags": [
+      "美食",
+      "早茶",
+      "潮汕",
+      "生活"
+    ],
+    "duration": 6,
+    "author": "自家视频",
+    "cacheState": "ready",
+    "cachedAt": null,
+    "createdAt": "2026-07-05T00:00:00.000Z",
+    "updatedAt": "2026-07-05T00:00:00.000Z"
+  },
+  {
+    "id": "demo-002",
+    "title": "老歌一响，心情舒畅",
+    "description": "Demo 视频：可用于测试喜欢、收藏和偏好学习。",
+    "url": "/media/demo-002.mp4",
+    "sourceUrl": null,
+    "thumb": "",
+    "tags": [
+      "老歌",
+      "怀旧",
+      "娱乐"
+    ],
+    "duration": 6,
+    "author": "自家视频",
+    "cacheState": "ready",
+    "cachedAt": null,
+    "createdAt": "2026-07-05T00:00:00.000Z",
+    "updatedAt": "2026-07-05T00:00:00.000Z"
+  },
+  {
+    "id": "demo-003",
+    "title": "拜神节俗小提醒",
+    "description": "Demo 视频：适合后续接民俗、节日、家庭提醒内容。",
+    "url": "/media/demo-003.mp4",
+    "sourceUrl": null,
+    "thumb": "",
+    "tags": [
+      "民俗",
+      "拜神",
+      "节日",
+      "潮汕"
+    ],
+    "duration": 6,
+    "author": "自家视频",
+    "cacheState": "ready",
+    "cachedAt": null,
+    "createdAt": "2026-07-05T00:00:00.000Z",
+    "updatedAt": "2026-07-05T00:00:00.000Z"
+  },
+  {
+    "id": "external-placeholder-001",
+    "title": "待接入：外部短视频 001",
+    "description": "这条没有 url，只有 sourceUrl；服务端会把它交给 download-adapter。",
+    "url": null,
+    "sourceUrl": "replace-with-your-own-source-id-or-url",
+    "thumb": "",
+    "tags": [
+      "待缓存",
+      "测试",
+      "生活"
+    ],
+    "duration": 20,
+    "author": "待接入",
+    "cacheState": "new",
+    "cachedAt": null,
+    "createdAt": "2026-07-05T00:00:00.000Z",
+    "updatedAt": "2026-07-05T02:36:27.650Z",
+    "cacheError": ""
+  }
+]
